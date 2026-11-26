@@ -1,7 +1,7 @@
 # Guia de Policy (Allowlist) — WA - Download Guard 🛡️
 
 Este documento explica **como criar e manter** a *policy* (allowlist) em **JSON** usada pela extensão para **permitir apenas tipos de arquivos seguros** vindos do WhatsApp.
-A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada pela extensão com **cache** (TTL).
+A extensão usa o [Pastefy](https://pastefy.app/qsgAfmgn/raw) por padrão. Uma URL personalizada pode apontar para um Gist RAW ou outro servidor HTTPS que permita a consulta da extensão por CORS.
 
 ---
 
@@ -10,8 +10,8 @@ A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada
 * **Formato:** JSON simples (sem comentários).
 * **Semântica:** *allowlist* — **só o que você listar é permitido**; todo o resto é **bloqueado**.
 * **Onde hospedar:** Gist RAW (ex.: `https://gist.githubusercontent.com/.../raw/.../allowlist.json`).
-* **Cache:** respeita `ttl_seconds`. Ao expirar, a extensão busca a versão nova.
-* **Sem policy válida:** a extensão opera em **modo seguro por padrão** ⇒ **bloqueia tudo** do WhatsApp.
+* **Cache.** O TTL indica quando buscar a versão nova. Se a consulta falhar, a última política válida da mesma URL segue em vigor.
+* **Sem política válida.** A extensão bloqueia os downloads que consegue identificar como originados no WhatsApp.
 
 ---
 
@@ -25,8 +25,8 @@ A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada
   "default_action": "block",
   "ttl_seconds": 3600,
   "allowed": {
-    "extensions": ["pdf", "jpg", "png" /* ... */],
-    "mime_types": ["application/pdf", "image/jpeg", "image/png" /* ... */]
+    "extensions": ["pdf", "jpg", "png"],
+    "mime_types": ["application/pdf", "image/jpeg", "image/png"]
   },
   "notes": "Campo opcional para documentação"
 }
@@ -38,7 +38,7 @@ A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada
 * `updated_at` (string ISO8601): informativo (auditoria/registro humano).
 * `mode` (string): **deve ser `"allow"`**.
 * `default_action` (string): **mantenha `"block"`**.
-* `ttl_seconds` (number): tempo de cache (ex.: `3600` = 1 hora).
+* `ttl_seconds` (number) é o tempo de cache em segundos. Aceita um inteiro positivo e usa `3600` quando omitido.
 * `allowed.extensions` (string[]):
 
   * **minúsculas, sem ponto** (ex.: `"pdf"`, não `".pdf"`).
@@ -53,24 +53,11 @@ A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada
 
 ## 🧠 Como a extensão decide (regra de permissão)
 
-**Content Script (na página do WhatsApp):**
+O service worker avalia os downloads identificados como originados no WhatsApp. O script na página aplica a mesma regra aos links `blob:` da própria página e `data:` com atributo `download`, com os dados que o link fornece.
 
-* **Sem policy carregada:** bloqueia **tudo** na origem (toast na página).
-* **Com policy carregada:** bloqueia quando a **extensão** é detectada e não está na allowlist; se não houver extensão detectável, o SW decide.
-
-**Service Worker (downloads):**
-
-* **Sem policy:** bloqueia **tudo**.
-* **Com policy:**
-
-  * Se **MIME** existir:
-
-    * **Precisa** estar em `allowed.mime_types`;
-    * **E**, se houver **extensão**, ela **também** precisa estar em `allowed.extensions`.
-    * **MIME genérico** (ex.: `application/octet-stream`) é tratado como ausente.
-  * Se **MIME** **não** existir:
-
-    * Exige que a **extensão** esteja em `allowed.extensions`.
+* Um MIME específico precisa constar em `allowed.mime_types`. Quando a extensão estiver disponível, ela também precisa constar em `allowed.extensions`.
+* Quando o MIME estiver ausente ou for genérico, como `application/octet-stream`, a decisão exige uma extensão permitida.
+* Na ausência de uma política válida para a URL salva, a decisão é bloquear.
 
 > ✅ **Recomendação:** Ao liberar um tipo, **adicione a extensão e o(s) MIME(s)** correspondentes.
 
@@ -230,7 +217,7 @@ A policy é hospedada em um **Gist RAW** (ou qualquer host com CORS) e carregada
 ## ❓ FAQ
 
 **Q:** A policy falhou de carregar. O que acontece?
-**A:** A extensão **bloqueia tudo** por segurança (com toast). Ao recuperar a policy, os tipos liberados voltam a passar.
+**A:** A extensão usa a última política válida da mesma URL, se houver. As opções mostram o erro da atualização. Se a URL ainda não tiver uma política válida, os downloads identificados como do WhatsApp ficam bloqueados.
 
 **Q:** Preciso listar **todos** os MIME possíveis?
 **A:** Liste os **principais** que você vê no seu ambiente. O SW exige MIME permitido **e** extensão permitida quando o MIME vier presente; quando não vier, a decisão cai só na extensão.

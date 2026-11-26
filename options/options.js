@@ -1,73 +1,81 @@
-const STORAGE = {
-  enabled: 'enabled',
-  configUrl: 'configUrl',
-  policy: 'policy',
-  policyFetchedAt: 'policyFetchedAt'
-};
+const { STATE_KEYS, readPolicyState } = globalThis.WADownloadGuard;
+const $ = id => document.getElementById(id);
+const dateFormat = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+let loadVersion = 0;
+let savedUrl = '';
 
-const DEFAULT_CONFIG_URL =
-  'https://gist.githubusercontent.com/user/gist-id/raw/allowlist_wa_guard.json';
+function showStatus(message, className = '') {
+  $('status').textContent = message;
+  $('status').className = `status ${className}`;
+}
 
-const $ = (id) => document.getElementById(id);
+function renderState(state) {
+  const { enabled, url, policy, fetchedAt, lastAttempt } = state;
+  if ($('configUrl').value === savedUrl) $('configUrl').value = url;
+  savedUrl = url;
+  const stale = policy && Date.now() / 1000 - fetchedAt >= policy.ttl_seconds;
+  $('protection').textContent = enabled ? 'Proteção ativa' : 'Proteção desativada';
+  $('info').textContent = policy
+    ? `Allowlist ${enabled ? 'em vigor' : 'armazenada'} com ${policy.allowed.extensions.length} extensões e ${policy.allowed.mime_types.length} tipos MIME.${stale ? ' Cache aguardando atualização.' : ''}`
+    : 'Nenhuma política válida para a URL atual.' +
+      (enabled ? ' Os downloads identificados como do WhatsApp serão bloqueados.' : '');
+  $('last-success').textContent = fetchedAt
+    ? `Última atualização bem-sucedida em ${dateFormat.format(fetchedAt * 1000)}.`
+    : 'Aguardando a primeira atualização bem-sucedida para esta URL.';
+  $('last-success').hidden = false;
+  $('last-error').textContent = lastAttempt?.error
+    ? `Última tentativa em ${dateFormat.format(lastAttempt.attemptedAt * 1000)}. ${lastAttempt.error}`
+    : '';
+  $('last-error').hidden = !lastAttempt?.error;
+}
 
-async function load() {
-  const data = await chrome.storage.local.get([
-    STORAGE.enabled,
-    STORAGE.configUrl,
-    STORAGE.policy,
-    STORAGE.policyFetchedAt
-  ]);
+async function readState() {
+  const version = ++loadVersion;
+  const data = await chrome.storage.local.get(STATE_KEYS);
+  const state = readPolicyState(data);
+  if (version === loadVersion) renderState(state);
+  return state;
+}
 
-  // força o enabled sempre true e bloqueia o checkbox
-  const enabledCheckbox = $('enabled');
-  if (enabledCheckbox) {
-    enabledCheckbox.checked = true;
-    enabledCheckbox.disabled = true;
+function setBusy(busy) {
+  for (const id of ['save', 'refresh', 'configUrl']) $(id).disabled = busy;
+}
+
+async function runAction(type) {
+  const saving = type === 'save-policy-url';
+  const url = $('configUrl').value.trim();
+  setBusy(true);
+  showStatus(saving ? 'Salvando a configuração…' : 'Atualizando a política…');
+
+  try {
+    const result = await chrome.runtime.sendMessage({ type, url: saving ? url : undefined });
+    const state = await readState();
+    if (saving && (result?.ok || result?.configured)) $('configUrl').value = state.url;
+    if (!result?.ok) {
+      const error = result?.error || 'Não foi possível atualizar a política.';
+      showStatus(saving && result?.configured ? `URL salva. ${error}` : error, 'err');
+    } else {
+      showStatus('Política atualizada.', 'ok');
+    }
+  } catch {
+    showStatus('Não foi possível acessar a configuração da extensão.', 'err');
+  } finally {
+    setBusy(false);
   }
-
-  $('configUrl').value = data[STORAGE.configUrl] || DEFAULT_CONFIG_URL;
-
-  const p = data[STORAGE.policy];
-  const ts = data[STORAGE.policyFetchedAt];
-  const ageSec = ts ? Math.max(0, Math.floor(Date.now() / 1000 - ts)) : null;
-
-  $('info').textContent = p
-    ? `Policy cache: mode=${p.mode} • allowed.ext=${p?.allowed?.extensions?.length || 0} • allowed.mime=${p?.allowed?.mime_types?.length || 0} • atualizado há ${ageSec ?? '?'}s`
-    : 'Nenhuma policy carregada — por segurança todos downloads do WhatsApp serão bloqueados.';
 }
 
-async function save() {
-  // força o enabled como true SEM depender do checkbox
-  const enabled = true;
-  const configUrl = $('configUrl').value.trim() || DEFAULT_CONFIG_URL;
+$('config').addEventListener('submit', event => {
+  event.preventDefault();
+  void runAction('save-policy-url');
+});
+$('refresh').addEventListener('click', () => void runAction('refresh-policy'));
 
-  await chrome.storage.local.set({
-    [STORAGE.enabled]: enabled,
-    [STORAGE.configUrl]: configUrl
-  });
-
-  document.getElementById('status').textContent = 'Salvo.';
-  document.getElementById('status').className = 'ok';
-  setTimeout(() => (document.getElementById('status').textContent = ''), 1500);
-}
-
-async function refresh() {
-  const status = document.getElementById('status');
-  status.textContent = 'Atualizando…';
-  status.className = '';
-  const res = await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'refresh-policy' }, resolve);
-  });
-  if (res?.ok) {
-    status.textContent = 'Atualizado ✅';
-    status.className = 'ok';
-  } else {
-    status.textContent = 'Falha ao atualizar (sem policy; bloqueio total).';
-    status.className = 'err';
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && STATE_KEYS.some(key => key in changes)) {
+    readState().catch(() => showStatus('Não foi possível ler o estado da política.', 'err'));
   }
-  await load();
-}
+});
 
-document.getElementById('save').addEventListener('click', save);
-document.getElementById('refresh').addEventListener('click', refresh);
-window.addEventListener('DOMContentLoaded', load);
+readState().catch(() => {
+  showStatus('Não foi possível ler a configuração salva.', 'err');
+}).finally(() => setBusy(false));

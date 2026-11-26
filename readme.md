@@ -25,30 +25,27 @@ Bloqueio inteligente de **downloads no WhatsApp Web** para reduzir risco de malw
 
 ## Apresentação
 
-O **WA - Download Guard** monitora downloads iniciados no **WhatsApp Web** e **bloqueia automaticamente** arquivos que não estão na lista permitida. É simples, direto e pensado pra uso real do dia a dia. Minha opinião: o grande trunfo aqui é o **preload das regras** — é o que fecha a principal brecha de segurança.
+O **WA - Download Guard** aplica uma allowlist de extensões e tipos MIME a downloads identificados como originados no WhatsApp Web.
 
 ---
 
 ## Recursos
 
-* ✅ **Preload das regras** — busca e aplica a policy ao instalar/atualizar e revalida a cada 60 minutos.
+* ✅ **Atualização automática** — verifica a política ao iniciar o navegador e consulta a fonte a cada 60 minutos.
 * ✅ **Listas flexíveis** — por **extensão** (ex.: `.zip`, `.exe`, `.js`) e por **MIME type**.
 * ✅ **Aviso amigável** — feedback visual quando um download é bloqueado.
-* ✅ **100% local** — nada sai do navegador; sem backend.
+* ✅ **Decisão local** — as informações dos downloads ficam no navegador. A extensão consulta a URL configurada para baixar a allowlist.
 
 ---
 
 ## Como funciona
 
-1. O **service worker** (background) observa `chrome.downloads.*`.
-2. Se a origem for **WhatsApp Web**, verifica extensão/MIME do arquivo.
-3. Se **não permitido**, cancela o download e registra o motivo (e mostra um aviso, se ativado).
-4. As **regras** vivem no `chrome.storage` e são recarregadas em:
+1. O **service worker** verifica a URL inicial, a URL final, a origem embutida em URLs `blob:` e a referência fornecida pelo Chrome.
+2. Para downloads do WhatsApp, mantém a determinação do nome aberta até avaliar a extensão e o MIME. Se a política bloquear o arquivo, tenta cancelar e verifica o estado retornado pelo Chrome.
+3. Quando o arquivo já foi concluído, o aviso orienta a conferir o arquivo no disco. O histórico do navegador é preservado.
+4. O script do WhatsApp exibe avisos e pode impedir cliques em links `blob:` da própria página ou `data:` com atributo `download`. A identificação pelo navegador depende dos metadados disponíveis.
 
-* `onInstalled` (instalação/atualização)
-* `onStartup` (início do navegador)
-* A cada 60 minutos (`chrome.alarms`)
-* Manualmente em Opções > "Atualizar agora"
+O cache pertence à URL que forneceu a política. A extensão busca uma política ao ser instalada ou atualizada, ao salvar um endereço, no alarme de 60 minutos e ao clicar em **Atualizar agora**. Ao iniciar ou avaliar um download, verifica se o cache precisa ser atualizado.
 
 ---
 
@@ -57,7 +54,10 @@ O **WA - Download Guard** monitora downloads iniciados no **WhatsApp Web** e **b
 1. Baixe/clone o projeto.
 2. Abra `chrome://extensions/` e ative **Modo do desenvolvedor**.
 3. Clique **Carregar sem compactação** e selecione a pasta da extensão.
-4. Abra o **WhatsApp Web** e tente baixar algo proibido (ex.: `.zip`) para validar.
+4. Em **Opções**, confirme que a allowlist padrão foi carregada. Para usar outro endereço, informe a URL HTTPS e clique em **Salvar e atualizar**.
+5. No **WhatsApp Web**, teste um arquivo permitido e um arquivo bloqueado. Faça também um download de outro site para conferir o escopo.
+
+Para rodar os testes automatizados, execute `node --test` com Node.js 22 ou posterior.
 
 > Dica: pra empacotar localmente, use **“Empacotar extensão…”** em `chrome://extensions/`.
 
@@ -70,8 +70,9 @@ O **WA - Download Guard** monitora downloads iniciados no **WhatsApp Web** e **b
 * `downloads`: interceptar/cancelar downloads não permitidos.
 * `storage`: guardar configurações e listas localmente.
 * `alarms`: atualizar a policy automaticamente a cada 60 minutos.
+* `notifications`: mostrar avisos do navegador quando o aviso na página não estiver disponível.
 * Host `https://*.whatsapp.com/*`, `https://*.whatsapp.net/*`, `https://wa.me/*`: escopo do WhatsApp.
-* Host `https://gist.githubusercontent.com/*`: permitir baixar a allowlist padrão.
+* Host `https://wazap.coopavel.com.br/*`: acesso à fonte interna disponível nas versões anteriores e em configurações personalizadas.
 
 **Privacidade**
 
@@ -83,8 +84,9 @@ O **WA - Download Guard** monitora downloads iniciados no **WhatsApp Web** e **b
 
 ## Configuração
 
-Abra a página de **Opções** para ajustar a URL da allowlist.
-Não há controle de ligar/desligar — o bloqueio é sempre ativo.
+A extensão carrega a [allowlist padrão do Pastefy](https://pastefy.app/qsgAfmgn/raw) automaticamente. Para usar outro endereço, salve em **Opções** uma URL HTTPS que responda com a allowlist em JSON. O servidor precisa permitir a leitura por CORS quando o manifesto não concede acesso ao host. Para voltar ao padrão, limpe o campo e clique em **Salvar e atualizar**.
+
+As opções exibem a política em vigor, a última atualização bem-sucedida e o erro da última tentativa. Se a atualização falhar, a última política válida da mesma URL continua em vigor. Na atualização da 1.0.4, a URL que vinha por padrão na versão publicada é substituída pelo Pastefy. Outros endereços salvos são preservados. A política entra em vigor assim que a nova URL fornecer um JSON válido.
 
 **Exemplo mínimo de allowlist:**
 
@@ -131,7 +133,9 @@ Lá você encontra:
 / (raiz)
 ├─ manifest.json                # Manifest V3
 ├─ sw.js                        # Service worker (background) — bloqueio + preload das regras
-├─ content-whatsapp.js          # Content script para UI/integrações no WhatsApp Web
+├─ policy-refresh.js            # Atualização e cache por URL
+├─ policy-rules.js              # Validação e decisão compartilhadas
+├─ content-whatsapp.js          # Avisos e interceptação de links explícitos
 ├─ options/
 │  ├─ options.html              # Página de opções
 │  └─ options.js
@@ -148,18 +152,14 @@ Lá você encontra:
 
 ## FAQ / Solução de problemas
 
-**“O primeiro download proibido passou.”**
+**“Como verifico se a política está funcionando?”**
 
-* Verifique se o preload roda em `onInstalled`, `onStartup` e no alarme de atualização (a cada 60 min).
-* Use **Atualizar agora** em Opções para forçar a atualização da policy.
+* Abra **Opções** e verifique a allowlist em vigor e a data da última atualização.
+* Use **Atualizar agora** para testar a URL salva. Se aparecer um erro, confira o endereço RAW, o HTTP e o formato do JSON.
 
 **“Quero liberar só PDF e PNG.”**
 
 * Use `allowed.extensions` com `["pdf", "png"]` e `allowed.mime_types` com `["application/pdf", "image/png"]`.
-
-**“Apareceram dois avisos (toasts) por um único bloqueio.”**
-
-* Garanta que o toast é disparado **uma única vez por evento** (evite múltiplos listeners).
 
 **“Funciona em outros sites?”**
 

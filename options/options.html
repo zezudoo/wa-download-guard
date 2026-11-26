@@ -63,15 +63,13 @@
 
     label.inline{display:flex; align-items:center; gap:10px; user-select:none}
 
-    input[type="checkbox"]{width:18px;height:18px; accent-color:var(--accent)}
-
-    input[type="text"]{
+    input[type="url"]{
       width:100%; padding:10px 12px;
       background:var(--input-bg); color:var(--input-fg);
       border:1px solid var(--border); border-radius:8px; outline:none;
     }
-    input[type="text"]::placeholder{color:var(--muted)}
-    input[type="text"]:focus{
+    input[type="url"]::placeholder{color:var(--muted)}
+    input[type="url"]:focus{
       border-color: color-mix(in oklab, var(--accent) 60%, transparent);
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
     }
@@ -87,6 +85,7 @@
     .btn:active{transform:translateY(1px)}
     .btn.primary{background:var(--accent); border-color:var(--accent); color:#fff}
     .btn.primary:hover{background:var(--accent-600); border-color:var(--accent-600)}
+    .btn:disabled{opacity:.65;cursor:wait}
 
     .status{min-height:1.2em; font-size:12px; margin-left:6px}
     .status.ok{color:var(--accent)}
@@ -94,7 +93,7 @@
 
     .help{color:var(--muted); font-size:12px; margin-top:6px}
     .meta{color:var(--muted); font-size:12px; margin-top:8px}
-    code.k{padding:0 6px; border-radius:5px; background: color-mix(in oklab, var(--border) 50%, transparent)}
+    .meta.err{color:var(--danger)}
     hr.sep{border:0; border-top:1px solid var(--border); margin:12px 0}
   </style>
 </head>
@@ -102,35 +101,32 @@
   <div class="container">
     <h1>WA - Download Guard 🛡️</h1>
 
-    <div class="row">
-        <label class="inline">
-          <input type="checkbox" id="enabled" checked disabled aria-disabled="true" />
-          <span>Ativar bloqueio de downloads do WhatsApp <small style="color:var(--muted)">— sempre ativo por política</small></span>
-        </label>
-    </div>
-    
-    <div class="row">
-      <label for="configUrl" class="inline" style="gap:6px; align-items:flex-start; flex-direction:column">
-        <span>URL da allowlist (JSON)</span>
-        <input type="text" id="configUrl" placeholder="https://gist.githubusercontent.com/user/gist-id/raw/allowlist_wa_guard.json" />
-      </label>
-      <div class="help">Cole aqui o link <em>RAW</em> do Gist com a policy.</div>
-    </div>
+    <p id="protection"></p>
 
-    <div class="row buttons">
-      <button id="save" class="btn primary">Salvar</button>
-      <button id="refresh" class="btn">Atualizar agora</button>
-      <span id="status" class="status"></span>
-    </div>
+    <form id="config">
+      <div class="row">
+        <label for="configUrl" class="inline" style="gap:6px; align-items:flex-start; flex-direction:column">
+          <span>URL da allowlist (JSON)</span>
+          <input type="url" id="configUrl" aria-describedby="config-help" placeholder="https://config.example/allowlist.json" disabled />
+        </label>
+        <div id="config-help" class="help">Use um link HTTPS direto para o JSON. Deixe o campo vazio e salve para restaurar a URL padrão.</div>
+      </div>
+
+      <div class="row buttons">
+        <button id="save" type="submit" class="btn primary" disabled>Salvar e atualizar</button>
+        <button id="refresh" type="button" class="btn" disabled>Atualizar agora</button>
+        <span id="status" class="status" role="status"></span>
+      </div>
+    </form>
 
     <hr class="sep" />
 
-    <div id="info" class="meta">Carregando…</div>
-    <div class="help">
-      Dica: mantenha apenas tipos comuns (ex.: <code class="k">pdf</code>, <code class="k">jpg</code>) e evite executáveis/arquivos compactados.
-    </div>
+    <div id="info" class="meta" aria-live="polite">Carregando…</div>
+    <div id="last-success" class="meta" hidden></div>
+    <div id="last-error" class="meta err" hidden></div>
   </div>
 
+  <script src="../policy-rules.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

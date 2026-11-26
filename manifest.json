@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "WA - Download Guard 🛡️",
   "short_name": "WA DL Guard",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Bloqueia downloads potencialmente maliciosos do WhatsApp.",
   "minimum_chrome_version": "114",
   "icons": {
@@ -22,13 +22,13 @@
     "https://*.whatsapp.com/*",
     "https://*.whatsapp.net/*",
     "https://wa.me/*",
-    "https://gist.githubusercontent.com/*"
+    "https://wazap.coopavel.com.br/*"
   ],
   "background": { "service_worker": "sw.js", "type": "module" },
   "content_scripts": [
     {
       "matches": ["https://*.whatsapp.com/*", "https://wa.me/*"],
-      "js": ["content-whatsapp.js"],
+      "js": ["policy-rules.js", "content-whatsapp.js"],
       "run_at": "document_start",
       "all_frames": true
     }
