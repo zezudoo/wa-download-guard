@@ -1,0 +1,65 @@
+name: Release da extensão
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: extension-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Testar a extensão
+        run: node --test
+
+      - name: Gerar o ZIP
+        id: package
+        shell: bash
+        run: |
+          version="$(node -p "require('./manifest.json').version")"
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            printf 'A tag %s deve corresponder à versão %s do manifest.json.\n' "$RELEASE_TAG" "$version" >&2
+            exit 1
+          fi
+
+          archive="$RUNNER_TEMP/wa-download-guard-$RELEASE_TAG.zip"
+          git archive --format=zip --output="$archive" HEAD -- \
+            manifest.json sw.js content-whatsapp.js policy-rules.js policy-refresh.js icons options
+          unzip -tq "$archive"
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar no GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          if release="$(gh release view "$RELEASE_TAG" --json isDraft,assets 2>/dev/null)"; then
+            if ! jq -e --arg asset "$(basename "$ARCHIVE")" 'any(.assets[]; .name == $asset)' <<< "$release" >/dev/null; then
+              gh release upload "$RELEASE_TAG" "$ARCHIVE"
+            fi
+            if jq -e '.isDraft' <<< "$release" >/dev/null; then
+              gh release edit "$RELEASE_TAG" --draft=false
+            fi
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE" \
+              --verify-tag --generate-notes --title "WA Download Guard $RELEASE_TAG"
+          fi

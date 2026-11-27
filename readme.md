@@ -15,6 +15,7 @@ Bloqueio inteligente de **downloads no WhatsApp Web** para reduzir risco de malw
   - [Recursos](#recursos)
   - [Como funciona](#como-funciona)
   - [Instalação (desenvolvimento)](#instalação-desenvolvimento)
+  - [Publicar uma versão no GitHub](#publicar-uma-versão-no-github)
   - [Permissões \& Privacidade](#permissões--privacidade)
   - [Configuração](#configuração)
   - [Políticas (policy.md)](#políticas-policymd)
@@ -60,6 +61,19 @@ O cache pertence à URL que forneceu a política. A extensão busca uma polític
 Para rodar os testes automatizados, execute `node --test` com Node.js 22 ou posterior.
 
 > Dica: pra empacotar localmente, use **“Empacotar extensão…”** em `chrome://extensions/`.
+
+---
+
+## Publicar uma versão no GitHub
+
+Atualize a versão em `manifest.json` e envie o commit para a `main`. Em seguida, crie e envie a tag correspondente. Por exemplo, para a versão `1.0.6`:
+
+```sh
+git tag v1.0.6
+git push origin v1.0.6
+```
+
+O GitHub Actions roda os testes e publica o arquivo `wa-download-guard-v1.0.6.zip` em **Releases**. O ZIP contém os arquivos da extensão, com `manifest.json` na raiz. A publicação na Chrome Web Store continua sendo feita no painel da loja.
 
 ---
 
