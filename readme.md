@@ -73,7 +73,9 @@ git tag v1.0.6
 git push origin v1.0.6
 ```
 
-O GitHub Actions roda os testes e publica o arquivo `wa-download-guard-v1.0.6.zip` em **Releases**. O ZIP contém os arquivos da extensão, com `manifest.json` na raiz. A publicação na Chrome Web Store continua sendo feita no painel da loja.
+O GitHub Actions roda os testes e publica um ZIP e um CRX assinado em **Releases**. Use o ZIP para enviar a extensão à Chrome Web Store. O CRX do GitHub tem um ID próprio, vinculado à chave de assinatura mantida no secret `WA_GUARD_CRX_SIGNING_KEY`. Mantenha a mesma chave para preservar o ID entre versões.
+
+Para completar uma release de uma tag já enviada, execute o workflow **Release da extensão** na aba **Actions** com a tag desejada. O workflow gera os pacotes a partir daquela tag e anexa os arquivos que faltam.
 
 ---
 

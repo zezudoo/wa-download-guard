@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag existente da versão
+        required: true
+        type: string
 
 concurrency:
-  group: extension-release-${{ github.ref }}
+  group: extension-release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -16,11 +22,12 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -46,20 +53,51 @@ jobs:
           unzip -tq "$archive"
           printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Assinar e gerar o CRX
+        id: sign
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          CRX_SIGNING_KEY: ${{ secrets.WA_GUARD_CRX_SIGNING_KEY }}
+        run: |
+          if [[ -z "$CRX_SIGNING_KEY" ]]; then
+            echo "::error::O secret WA_GUARD_CRX_SIGNING_KEY precisa conter a chave PEM da extensão."
+            exit 1
+          fi
+
+          staging="$(mktemp -d "$RUNNER_TEMP/wa-guard-crx.XXXXXX")"
+          key_file="$staging/signing.pem"
+          trap 'rm -f -- "$key_file"' EXIT
+          umask 077
+          printf '%s\n' "$CRX_SIGNING_KEY" > "$key_file"
+          unset CRX_SIGNING_KEY
+
+          extension_dir="$staging/extension"
+          unzip -q "$ARCHIVE" -d "$extension_dir"
+          google-chrome --headless --user-data-dir="$staging/chrome" \
+            --pack-extension="$extension_dir" --pack-extension-key="$key_file"
+          test -s "${extension_dir}.crx"
+          crx="$RUNNER_TEMP/wa-download-guard-$RELEASE_TAG.crx"
+          mv "${extension_dir}.crx" "$crx"
+          printf 'crx=%s\n' "$crx" >> "$GITHUB_OUTPUT"
+
       - name: Publicar no GitHub Releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
+          CRX: ${{ steps.sign.outputs.crx }}
         run: |
           if release="$(gh release view "$RELEASE_TAG" --json isDraft,assets 2>/dev/null)"; then
-            if ! jq -e --arg asset "$(basename "$ARCHIVE")" 'any(.assets[]; .name == $asset)' <<< "$release" >/dev/null; then
-              gh release upload "$RELEASE_TAG" "$ARCHIVE"
-            fi
+            for file in "$ARCHIVE" "$CRX"; do
+              if ! jq -e --arg asset "$(basename "$file")" 'any(.assets[]; .name == $asset)' <<< "$release" >/dev/null; then
+                gh release upload "$RELEASE_TAG" "$file"
+              fi
+            done
             if jq -e '.isDraft' <<< "$release" >/dev/null; then
               gh release edit "$RELEASE_TAG" --draft=false
             fi
           else
-            gh release create "$RELEASE_TAG" "$ARCHIVE" \
+            gh release create "$RELEASE_TAG" "$ARCHIVE" "$CRX" \
               --verify-tag --generate-notes --title "WA Download Guard $RELEASE_TAG"
           fi
